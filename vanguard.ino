@@ -1,3 +1,16 @@
+// Protospace Vanguard
+// Helps members host new members
+//
+// Board: Wemos D1 Mini
+//        - select "LOLIN(WEMOS) D1 R2 & mini"
+
+#include <Arduino.h>
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>  // "LiquidCrystal I2C" by Marco Schwartz v1.1.2
+
+//String portalAPI = "https://api.my.protospace.ca";
+String portalAPI = "https://api.spaceport.dns.t0.vc";
+
 #define DEBUG 1
 
 #define BUTTON1LED D0
@@ -23,6 +36,15 @@ enum buttonStates button1State = OPEN;
 enum buttonStates button2State = OPEN;
 enum buttonStates button3State = OPEN;
 
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+
+void rebootArduino() {
+	lcd.clear();
+	lcd.print("REBOOTING...");
+	delay(1000);
+	ESP.restart();
+}
+
 void setup()
 {
 	Serial.begin(115200);
@@ -37,6 +59,17 @@ void setup()
 	pinMode(BUTTON1SW, INPUT_PULLUP);
 	pinMode(BUTTON2SW, INPUT_PULLUP);
 	pinMode(BUTTON3SW, INPUT_PULLUP);
+
+	delay(1000);
+
+	lcd.init();
+	lcd.backlight();
+
+	lcd.clear();
+	lcd.print("BOOT UP");
+
+	Serial.println("Setup complete.");
+	delay(500);
 }
 
 void loop() {
