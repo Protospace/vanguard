@@ -29,10 +29,10 @@ String portalAPI = "https://api.spaceport.dns.t0.vc";
 #define BUTTON_HOLD_TIME 1000
 #define BUTTON_PRESS_TIME 20
 
-#define CONTROLLER_DELAY_MS 1000
+#define CONTROLLER_IDLE_DELAY_MS 4500
+#define CONTROLLER_UI_DELAY_MS 1000
 #define CONNECT_TIMEOUT_MS 30000
 #define ELLIPSIS_ANIMATION_DELAY_MS 1000
-#define HEARTBEAT_INTERVAL_MS 1000 * 60 * 60  // hourly
 
 enum buttonStates {
 	BUTTON_OPEN,
@@ -51,11 +51,11 @@ enum controllerStates {
 	CONTROLLER_BEGIN,
 	CONTROLLER_WIFI_CONNECT,
 	CONTROLLER_GET_TIME,
-	CONTROLLER_HEARTBEAT,
-	CONTROLLER_RESET,
 	CONTROLLER_IDLE,
-	CONTROLLER_DELAY,
-	CONTROLLER_WAIT,
+	CONTROLLER_IDLE_DELAY,
+	CONTROLLER_IDLE_WAIT,
+	CONTROLLER_UI_DELAY,
+	CONTROLLER_UI_WAIT,
 };
 enum controllerStates controllerState = CONTROLLER_BEGIN;
 
@@ -89,6 +89,7 @@ void processControllerState() {
 	switch (controllerState) {
 		case CONTROLLER_BEGIN:
 			Serial.println("[WIFI] Connecting...");
+			retryCount = 0;
 
 			timer = millis();
 			controllerState = CONTROLLER_WIFI_CONNECT;
@@ -112,7 +113,7 @@ void processControllerState() {
 				Serial.println("[TIME] Setting time using NTP.");
 				configTime(8 * 3600, 0, "pool.ntp.org", "time.nist.gov");
 				nextControllerState = CONTROLLER_GET_TIME;
-				controllerState = CONTROLLER_DELAY;
+				controllerState = CONTROLLER_UI_DELAY;
 			}
 
 			if (millis() - timer > CONNECT_TIMEOUT_MS) {  // overflow safe
@@ -146,26 +147,31 @@ void processControllerState() {
 				Serial.print("[TIME] Current time in UTC: ");
 				Serial.print(asctime(&timeinfo));
 
-				Serial.println("[WIFI] Test connection to portal...");
-				controllerState = CONTROLLER_HEARTBEAT;
+				lcd.clear();
+				lcd.print("CHECK PORTAL...");
+
+				Serial.println("Moving to idle state...");
+				controllerState = CONTROLLER_IDLE;
 			}
 
 			break;
 
-		case CONTROLLER_HEARTBEAT:
-			// test connection to the portal
-
-			lcd.clear();
-			lcd.print("CHECK PORTAL...");
-
+		case CONTROLLER_IDLE:
 			result = https.begin(wc, portalAPI + "/stats/");
 
 			if (!result) {
 				Serial.println("[WIFI] https.begin failed.");
-				lcd.clear();
-				lcd.print("CONNECTION ERROR");
-				nextControllerState = CONTROLLER_BEGIN;
-				controllerState = CONTROLLER_DELAY;
+
+				retryCount++;
+				if (retryCount > 5) {
+					lcd.clear();
+					lcd.print("CONNECTION ERROR");
+					nextControllerState = CONTROLLER_BEGIN;
+					controllerState = CONTROLLER_UI_DELAY;
+					break;
+				}
+
+				controllerState = CONTROLLER_IDLE_DELAY;
 				break;
 			}
 
@@ -178,47 +184,49 @@ void processControllerState() {
 				lcd.clear();
 				lcd.print("BAD REQUEST: ");
 				lcd.print(result);
-				nextControllerState = CONTROLLER_BEGIN;
-				controllerState = CONTROLLER_DELAY;
+
+				retryCount++;
+				if (retryCount > 5) {
+					lcd.clear();
+					lcd.print("CONNECTION ERROR");
+					nextControllerState = CONTROLLER_BEGIN;
+					controllerState = CONTROLLER_UI_DELAY;
+					break;
+				}
+
+				controllerState = CONTROLLER_IDLE_DELAY;
 				break;
 			}
+			retryCount = 0;
 
-			Serial.println("[WIFI] Heartbeat success.");
+			Serial.println("[WIFI] Stats success.");
 			lcd.setCursor(0,1);
 			lcd.print("GOOD");
 
-			controllerState = CONTROLLER_RESET;
+			controllerState = CONTROLLER_IDLE_DELAY;
 
 			break;
 
-		case CONTROLLER_RESET:
-			time(&now);
 
-			Serial.println("Controller reset");
 
-			lcd.clear();
-			lcd.print("WAITING FOR    ");
-			lcd.setCursor(0,1);
-			lcd.print("SCAN");
-
+		case CONTROLLER_IDLE_DELAY:
 			timer = millis();
-			controllerState = CONTROLLER_IDLE;
+			controllerState = CONTROLLER_IDLE_WAIT;
 			break;
 
-		case CONTROLLER_IDLE:
-			if (millis() - timer > HEARTBEAT_INTERVAL_MS) {  // overflow safe
-				controllerState = CONTROLLER_HEARTBEAT;
+		case CONTROLLER_IDLE_WAIT:
+			if (millis() - timer > CONTROLLER_IDLE_DELAY_MS) {  // overflow safe
+				controllerState = CONTROLLER_IDLE;
 			}
-
 			break;
 
-		case CONTROLLER_DELAY:
+		case CONTROLLER_UI_DELAY:
 			timer = millis();
-			controllerState = CONTROLLER_WAIT;
+			controllerState = CONTROLLER_UI_WAIT;
 			break;
 
-		case CONTROLLER_WAIT:
-			if (millis() - timer > CONTROLLER_DELAY_MS) {  // overflow safe
+		case CONTROLLER_UI_WAIT:
+			if (millis() - timer > CONTROLLER_UI_DELAY_MS) {  // overflow safe
 				controllerState = nextControllerState;
 			}
 			break;
