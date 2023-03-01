@@ -300,9 +300,9 @@ void processControllerState() {
 				lcd.print(host_name);
 			} else {
 				lcd.clear();
-				lcd.print("WAITING FOR ");
+				lcd.print("Waiting for");
 				lcd.setCursor(0,1);
-				lcd.print("DOOR SCAN ");
+				lcd.print("door scan.");
 			}
 
 			controllerState = CONTROLLER_IDLE_DELAY;
@@ -338,6 +338,50 @@ void processControllerState() {
 
 		case CONTROLLER_SEND_HOURS:
 			Serial.println("[HOST] Sending hosting hours to portal.");
+			lcd.clear();
+			lcd.print("Sending...");
+
+			result = https.begin(wc, portalAPI + "/hosting/offer/");
+
+			if (!result) {
+				Serial.println("[HOST] https.begin failed.");
+				lcd.clear();
+				lcd.print("CONNECTION ERROR");
+				nextControllerState = CONTROLLER_BEGIN;
+				controllerState = CONTROLLER_UI_DELAY;
+				break;
+			}
+
+			postData = "member_id="
+				+ String(member_id)
+				+ "&hours="
+				+ host_hours;
+
+			Serial.println("[HOST] POST data:");
+			Serial.println(postData);
+
+			https.addHeader("Content-Type", "application/x-www-form-urlencoded");
+			https.addHeader("Content-Length", String(postData.length()));
+			//https.addHeader("Authorization", VANGUARD_API_TOKEN);
+			result = https.POST(postData);
+
+			Serial.printf("[HOST] Http code: %d\n", result);
+
+			if (result != HTTP_CODE_OK) {
+				Serial.printf("[HOST] Bad send, error:\n%s\n", https.errorToString(result).c_str());
+				lcd.clear();
+				lcd.print("BAD SEND: ");
+				lcd.print(result);
+				nextControllerState = CONTROLLER_BEGIN;
+				controllerState = CONTROLLER_UI_DELAY;
+				break;
+			}
+
+			lcd.clear();
+			lcd.print("Thank you");
+			lcd.setCursor(0,1);
+			lcd.print("for hosting!");
+
 			controllerState = CONTROLLER_UI_DELAY;
 			nextControllerState = CONTROLLER_IDLE;
 			break;
