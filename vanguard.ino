@@ -35,9 +35,10 @@ String portalAPI = "https://api.spaceport.dns.t0.vc";
 
 #define CONTROLLER_IDLE_DELAY_MS 4500
 #define CONTROLLER_UI_DELAY_MS 1000
+#define CONTROLLER_OFFER_DELAY_MS 30000
 #define CONNECT_TIMEOUT_MS 30000
 #define ELLIPSIS_ANIMATION_DELAY_MS 1000
-#define SCROLL_ANIMATION_DELAY_MS 500
+#define SCROLL_ANIMATION_DELAY_MS 250
 
 enum buttonStates {
 	BUTTON_OPEN,
@@ -56,6 +57,8 @@ enum controllerStates {
 	CONTROLLER_WIFI_CONNECT,
 	CONTROLLER_GET_TIME,
 	CONTROLLER_IDLE,
+	CONTROLLER_OFFER_HOST,
+	CONTROLLER_SEND_HOURS,
 	CONTROLLER_IDLE_DELAY,
 	CONTROLLER_IDLE_WAIT,
 	CONTROLLER_UI_DELAY,
@@ -63,9 +66,21 @@ enum controllerStates {
 };
 enum controllerStates controllerState = CONTROLLER_BEGIN;
 
+String first_name = "";
+unsigned long scan_time = 0;
+int member_id = 0;
+unsigned long closing_time = 0;
+String closing_time_str = "";
+String host_name = "";
+
+int host_hours = 0;
+
 enum LEDStates {
 	LEDS_OFF,
 	LEDS_SCROLL,
+	LEDS_BUTTON1,
+	LEDS_BUTTON2,
+	LEDS_BUTTON3,
 };
 enum LEDStates LEDState = LEDS_OFF;
 
@@ -82,13 +97,15 @@ void rebootArduino() {
 
 void processControllerState() {
 	static unsigned long timer = millis();
+	static unsigned long prev_scan_time = 0;
 	static enum controllerStates nextControllerState;
 	static int statusCode;
-	static StaticJsonDocument<1024> jsonDoc;
+	static StaticJsonDocument<2048> jsonDoc;
 	static int retryCount;
 
 	String response;
 	String postData;
+
 	bool failed;
 	time_t now;
 	struct tm timeinfo;
@@ -124,6 +141,7 @@ void processControllerState() {
 				configTime(8 * 3600, 0, "pool.ntp.org", "time.nist.gov");
 				nextControllerState = CONTROLLER_GET_TIME;
 				controllerState = CONTROLLER_UI_DELAY;
+				break;
 			}
 
 			if (millis() - timer > CONNECT_TIMEOUT_MS) {  // overflow safe
@@ -138,6 +156,7 @@ void processControllerState() {
 
 				rebootArduino();
 			}
+			timer = millis();
 
 			break;
 
@@ -162,11 +181,25 @@ void processControllerState() {
 
 				Serial.println("Moving to idle state...");
 				controllerState = CONTROLLER_IDLE;
+				break;
+			}
+
+			if (millis() - timer > CONNECT_TIMEOUT_MS) {  // overflow safe
+				WiFi.disconnect();
+				WiFi.mode(WIFI_OFF);
+
+				lcd.clear();
+				lcd.print("TIME FAILED");
+				nextControllerState = CONTROLLER_BEGIN;
+				controllerState = CONTROLLER_UI_DELAY;
+				break;
 			}
 
 			break;
 
 		case CONTROLLER_IDLE:
+			LEDState = LEDS_OFF;
+
 			result = https.begin(wc, portalAPI + "/stats/");
 
 			if (!result) {
@@ -198,6 +231,7 @@ void processControllerState() {
 				retryCount++;
 				if (retryCount > 5) {
 					lcd.clear();
+					// TODO: display this each time with a retry count below
 					lcd.print("CONNECTION ERROR");
 					nextControllerState = CONTROLLER_BEGIN;
 					controllerState = CONTROLLER_UI_DELAY;
@@ -209,15 +243,104 @@ void processControllerState() {
 			}
 			retryCount = 0;
 
-			Serial.println("[WIFI] Stats success.");
-			lcd.setCursor(0,1);
-			lcd.print("GOOD");
+			response = https.getString();
+
+			Serial.print("[SCAN] Response: ");
+			Serial.println(response);
+
+			deserializeJson(jsonDoc, response);
+			first_name = jsonDoc["last_scan"]["first_name"].as<String>();
+			scan_time = jsonDoc["last_scan"]["time"].as<unsigned long>();
+			member_id = jsonDoc["last_scan"]["member_id"];
+			host_name = jsonDoc["closing"]["first_name"].as<String>();
+			closing_time = jsonDoc["closing"]["time"].as<unsigned long>();
+			closing_time_str = jsonDoc["closing"]["time_str"].as<String>();
+
+			Serial.print("first_name: ");
+			Serial.println(first_name);
+			Serial.print("member_id: ");
+			Serial.println(member_id);
+			Serial.print("scan_time: ");
+			Serial.println(scan_time);
+			Serial.print("host_name: ");
+			Serial.println(host_name);
+			Serial.print("closing_time: ");
+			Serial.println(closing_time);
+			Serial.print("closing_time_str: ");
+			Serial.println(closing_time_str);
+
+			if (prev_scan_time != 0 && prev_scan_time != scan_time) {
+				Serial.println("[SCAN] New scan, offering to host.");
+
+				lcd.clear();
+				lcd.print("Welcome,");
+				lcd.setCursor(0,1);
+				lcd.print(first_name);
+
+				controllerState = CONTROLLER_OFFER_HOST;
+				timer = millis();
+				prev_scan_time = scan_time;  // delete?
+				break;
+			}
+			prev_scan_time = scan_time;
+
+			time(&now);
+
+			if (closing_time > (unsigned long) now) {
+				Serial.print("[HOST] Protospace is open, showing closing time: ");
+				Serial.print(closing_time_str);
+				Serial.print(" thanks, ");
+				Serial.println(host_name);
+
+				lcd.clear();
+				lcd.print("Closing ");
+				lcd.print(closing_time_str);
+				lcd.setCursor(0,1);
+				lcd.print("Thanks ");
+				lcd.print(host_name);
+			} else {
+				lcd.clear();
+				lcd.print("WAITING FOR ");
+				lcd.setCursor(0,1);
+				lcd.print("DOOR SCAN ");
+			}
 
 			controllerState = CONTROLLER_IDLE_DELAY;
-			LEDState = LEDS_SCROLL;
 
 			break;
 
+		case CONTROLLER_OFFER_HOST:
+			LEDState = LEDS_SCROLL;
+
+			if (button1State == BUTTON_PRESSED) {
+				host_hours = 2;
+				LEDState = LEDS_BUTTON1;
+				controllerState = CONTROLLER_SEND_HOURS;
+				break;
+			} else if (button2State == BUTTON_PRESSED) {
+				host_hours = 4;
+				LEDState = LEDS_BUTTON2;
+				controllerState = CONTROLLER_SEND_HOURS;
+				break;
+			} else if (button3State == BUTTON_PRESSED) {
+				host_hours = 6;
+				LEDState = LEDS_BUTTON3;
+				controllerState = CONTROLLER_SEND_HOURS;
+				break;
+			} else if (millis() - timer > CONTROLLER_OFFER_DELAY_MS) {  // overflow safe
+				Serial.println("[HOST] Offer timed out, returning to idle state.");
+				controllerState = CONTROLLER_IDLE;
+				LEDState = LEDS_OFF;
+				break;
+			}
+
+			break;
+
+		case CONTROLLER_SEND_HOURS:
+			Serial.println("[HOST] Sending hosting hours to portal.");
+			controllerState = CONTROLLER_UI_DELAY;
+			nextControllerState = CONTROLLER_IDLE;
+			break;
 
 
 		case CONTROLLER_IDLE_DELAY:
@@ -254,8 +377,8 @@ void processLEDState() {
 			digitalWrite(BUTTON1LED, LED_OFF);
 			digitalWrite(BUTTON2LED, LED_OFF);
 			digitalWrite(BUTTON3LED, LED_OFF);
-
 			break;
+
 		case LEDS_SCROLL:
 			onLed = (millis() / SCROLL_ANIMATION_DELAY_MS) % NUM_BUTTONS;
 
@@ -273,6 +396,24 @@ void processLEDState() {
 				digitalWrite(BUTTON3LED, LED_ON);
 			}
 
+			break;
+
+		case LEDS_BUTTON1:
+			digitalWrite(BUTTON1LED, LED_ON);
+			digitalWrite(BUTTON2LED, LED_OFF);
+			digitalWrite(BUTTON3LED, LED_OFF);
+			break;
+
+		case LEDS_BUTTON2:
+			digitalWrite(BUTTON1LED, LED_OFF);
+			digitalWrite(BUTTON2LED, LED_ON);
+			digitalWrite(BUTTON3LED, LED_OFF);
+			break;
+
+		case LEDS_BUTTON3:
+			digitalWrite(BUTTON1LED, LED_OFF);
+			digitalWrite(BUTTON2LED, LED_OFF);
+			digitalWrite(BUTTON3LED, LED_ON);
 			break;
 	}
 
