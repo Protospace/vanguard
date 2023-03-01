@@ -25,6 +25,10 @@ String portalAPI = "https://api.spaceport.dns.t0.vc";
 #define BUTTON2SW  D3
 #define BUTTON3LED D7
 #define BUTTON3SW  D4
+#define NUM_BUTTONS 3
+
+#define LED_ON  LOW
+#define LED_OFF HIGH
 
 #define BUTTON_HOLD_TIME 1000
 #define BUTTON_PRESS_TIME 20
@@ -33,6 +37,7 @@ String portalAPI = "https://api.spaceport.dns.t0.vc";
 #define CONTROLLER_UI_DELAY_MS 1000
 #define CONNECT_TIMEOUT_MS 30000
 #define ELLIPSIS_ANIMATION_DELAY_MS 1000
+#define SCROLL_ANIMATION_DELAY_MS 500
 
 enum buttonStates {
 	BUTTON_OPEN,
@@ -42,7 +47,6 @@ enum buttonStates {
 	BUTTON_HELD,
 	NUM_BUTTONSTATES
 };
-
 enum buttonStates button1State = BUTTON_OPEN;
 enum buttonStates button2State = BUTTON_OPEN;
 enum buttonStates button3State = BUTTON_OPEN;
@@ -58,6 +62,12 @@ enum controllerStates {
 	CONTROLLER_UI_WAIT,
 };
 enum controllerStates controllerState = CONTROLLER_BEGIN;
+
+enum LEDStates {
+	LEDS_OFF,
+	LEDS_SCROLL,
+};
+enum LEDStates LEDState = LEDS_OFF;
 
 LiquidCrystal_I2C lcd(0x27, 16, 2);
 WiFiClientSecure wc;
@@ -204,6 +214,7 @@ void processControllerState() {
 			lcd.print("GOOD");
 
 			controllerState = CONTROLLER_IDLE_DELAY;
+			LEDState = LEDS_SCROLL;
 
 			break;
 
@@ -229,6 +240,39 @@ void processControllerState() {
 			if (millis() - timer > CONTROLLER_UI_DELAY_MS) {  // overflow safe
 				controllerState = nextControllerState;
 			}
+			break;
+	}
+
+	return;
+}
+
+void processLEDState() {
+	int onLed = 0;
+
+	switch(LEDState) {
+		case LEDS_OFF:
+			digitalWrite(BUTTON1LED, LED_OFF);
+			digitalWrite(BUTTON2LED, LED_OFF);
+			digitalWrite(BUTTON3LED, LED_OFF);
+
+			break;
+		case LEDS_SCROLL:
+			onLed = (millis() / SCROLL_ANIMATION_DELAY_MS) % NUM_BUTTONS;
+
+			if (onLed == 0) {
+				digitalWrite(BUTTON1LED, LED_ON);
+				digitalWrite(BUTTON2LED, LED_OFF);
+				digitalWrite(BUTTON3LED, LED_OFF);
+			} else if (onLed == 1) {
+				digitalWrite(BUTTON1LED, LED_OFF);
+				digitalWrite(BUTTON2LED, LED_ON);
+				digitalWrite(BUTTON3LED, LED_OFF);
+			} else if (onLed == 2) {
+				digitalWrite(BUTTON1LED, LED_OFF);
+				digitalWrite(BUTTON2LED, LED_OFF);
+				digitalWrite(BUTTON3LED, LED_ON);
+			}
+
 			break;
 	}
 
@@ -272,6 +316,7 @@ void setup()
 void loop() {
 	pollButtons();
 	processControllerState();
+	processLEDState();
 }
 
 void pollButtons() {
