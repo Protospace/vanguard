@@ -35,7 +35,7 @@ String portalAPI = "https://api.spaceport.dns.t0.vc";
 
 #define CONTROLLER_IDLE_DELAY_MS 4500
 #define CONTROLLER_UI_DELAY_MS 1000
-#define CONTROLLER_OFFER_DELAY_MS 30000
+#define CONTROLLER_OFFER_DELAY_MS 90000
 #define CONNECT_TIMEOUT_MS 30000
 #define ELLIPSIS_ANIMATION_DELAY_MS 1000
 #define SCROLL_ANIMATION_DELAY_MS 250
@@ -289,14 +289,14 @@ void processControllerState() {
 			if (closing_time > (unsigned long) now) {
 				Serial.print("[HOST] Protospace is open, showing closing time: ");
 				Serial.print(closing_time_str);
-				Serial.print(" thanks, ");
+				Serial.print(" host: ");
 				Serial.println(host_name);
 
 				lcd.clear();
 				lcd.print("Closing ");
 				lcd.print(closing_time_str);
 				lcd.setCursor(0,1);
-				lcd.print("Thanks ");
+				lcd.print("Host: ");
 				lcd.print(host_name);
 			} else {
 				lcd.clear();
@@ -362,7 +362,7 @@ void processControllerState() {
 
 			https.addHeader("Content-Type", "application/x-www-form-urlencoded");
 			https.addHeader("Content-Length", String(postData.length()));
-			//https.addHeader("Authorization", VANGUARD_API_TOKEN);
+			https.addHeader("Authorization", VANGUARD_API_TOKEN);
 			result = https.POST(postData);
 
 			Serial.printf("[HOST] Http code: %d\n", result);
